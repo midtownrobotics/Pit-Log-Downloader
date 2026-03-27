@@ -1,0 +1,19 @@
+{
+  "name": "pit-log-downloader",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "npx nodemon index.ts"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  },
+  "dependencies": {
+    "@types/node-ssh": "^7.0.6",
+    "node-ssh": "^13.2.1"
+  }
+}
