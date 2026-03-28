@@ -1,18 +1,35 @@
 import { NodeSSH } from "node-ssh";
 import * as path from 'path';
 import * as fs from "fs";
+import * as os from "os";
 
 const ssh = new NodeSSH;
 
-const kRioIP = "10.16.48.2";
+const kRobotNetworkBaseIp = "10.16.48";
+const kRioIp = kRobotNetworkBaseIp + ".2";
 
 const logFileRegex = /^akit_[^_]+_[^_]+_[^_]+_[qe]\d+.wpilog$/;
 
-downloadLogs();
+let robotConnected = false;
+
+setInterval(() => {
+    const recentPoll = isRobotNetworkConnected();
+
+    if (recentPoll !== robotConnected && recentPoll) {
+        console.log("Found robot network!! Downloading logs...");
+        downloadLogs();
+    }
+
+    robotConnected = recentPoll;
+}, 3000);
+
+function isRobotNetworkConnected() {
+    return Object.entries(os.networkInterfaces()).flatMap(e => e[1]).some(n => n?.address.includes(kRobotNetworkBaseIp));
+};
 
 async function downloadLogs() {
     await ssh.connect({
-        host: kRioIP,
+        host: kRioIp,
         username: "admin",
         password: ""
     })
