@@ -55,8 +55,6 @@ const logs: Log[] = JSON.parse(fs.readFileSync("./logs.json").toString());
 
 logWithTimestamp("Started!");
 
-let uploadNeeded = false;
-
 let running = false;
 async function poll() {
     if (!running) {
@@ -75,18 +73,14 @@ async function logicLoop() {
     if (recentPoll !== robotConnected && recentPoll) {
         logWithTimestamp("Robot network found.");
         const res = await downloadLogs();
-        if (res) uploadNeeded = true;
-        else return;
+        if (!res) return;
     }
 
     if (recentPoll !== robotConnected && !recentPoll) {
         logWithTimestamp("Robot network lost.")
     }
 
-    if (uploadNeeded) {
-        await updateDrive();
-        uploadNeeded = false;
-    }
+    await updateDrive();
 
     robotConnected = recentPoll;
     if (JSON.stringify(currentLogs) !== JSON.stringify(logs)) {
@@ -178,6 +172,8 @@ async function updateDrive() {
         logWithTimestamp("Computer must be online to upload to drive.");
         return;
     }
+
+    if (!logs.some(l => l.status.inDrive === false)) return;
 
     const drive = google.drive({ version: 'v3', auth });
 
