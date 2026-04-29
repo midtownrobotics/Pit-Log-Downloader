@@ -13,7 +13,7 @@ const kLogFolderId = "1dLI2PBtz-6NQLCZ2zNC5-zbqWt_5onbg";
 
 const kRioIp = kRobotNetworkBaseIp + ".2";
 
-const logFileRegex = /^akit_[^_]+_[^_]+_[^_]+_[qe]\d+\.wpilog$/;
+const logFileRegex = /^akit_[^_]+_[^_]+_[^_]+_[qep]\d+\.wpilog$/;
 
 const auth = new google.auth.GoogleAuth({
     keyFile: 'service-account-key.json',
@@ -21,6 +21,9 @@ const auth = new google.auth.GoogleAuth({
 });
 
 let robotConnected = false;
+let driveUpdating = false;
+
+type MatchType = "e" | "q" | "p"
 
 type Log = {
     name: string;
@@ -31,7 +34,7 @@ type Log = {
     }
     match: {
         event: string;
-        type: "e" | "q";
+        type: MatchType;
         number: number;
     };
     locations: {
@@ -44,6 +47,17 @@ type Log = {
             fileId: string;
             folderId: string;
         };
+    }
+}
+
+function getPrefixFromMatchType(matchType: MatchType) {
+    switch (matchType) {
+        case "e":
+            return "Elim-"
+        case "q":
+            return "Qual-"
+        case "p":
+            return "Prct-"
     }
 }
 
@@ -67,7 +81,6 @@ async function poll() {
 poll();
 
 async function logicLoop() {
-    const currentLogs = JSON.parse(JSON.stringify(logs));
     const recentPoll = isRobotNetworkConnected();
 
     if (recentPoll !== robotConnected && recentPoll) {
@@ -80,12 +93,14 @@ async function logicLoop() {
         logWithTimestamp("Robot network lost.")
     }
 
-    await updateDrive();
+    try {
+        updateDrive();
+    } catch (err) {
+        logWithTimestamp("Could not update drive.");
+    }
 
     robotConnected = recentPoll;
-    if (JSON.stringify(currentLogs) !== JSON.stringify(logs)) {
-        fs.writeFileSync("./logs.json", JSON.stringify(logs));
-    }
+    fs.writeFileSync("./logs.json", JSON.stringify(logs));
 };
 
 function isRobotNetworkConnected() {
@@ -121,9 +136,9 @@ async function downloadLogs() {
                 const splitByUS = filename.split("_");
                 const event = splitByUS[3];
                 const match = splitByUS[4].split(".")[0];
-                const matchType = match.substring(0, 1) as "q" | "e";
+                const matchType = match.substring(0, 1) as MatchType;
                 const matchNumber = match.substring(1);
-                const friendlyName = (matchType === "q" ? "Qual-" : "Elim-") + matchNumber;
+                const friendlyName = getPrefixFromMatchType(matchType) + matchNumber;
 
                 const log: Log = {
                     name: friendlyName,
@@ -146,10 +161,15 @@ async function downloadLogs() {
                     }
                 }
 
+                logWithTimestamp("Found log: " + log.name);
+
                 if (!logs.some(l => l.id === log.id && l.status.downloaded)) {
                     try {
                         fs.mkdirSync(path.dirname(log.locations.localPath), { recursive: true });
                         await ssh.getFile(log.locations.localPath, log.locations.rio.path);
+                        // if (fs.existsSync(log.locations.localPath)) {
+                        //     await ssh.execCommand("rm " + log.locations.rio.path);
+                        // }
                         logs.push(log);
                     } catch (err) {
                         logWithTimestamp("Could not download log file: " + log.id)
@@ -168,12 +188,15 @@ async function downloadLogs() {
 }
 
 async function updateDrive() {
+    if (driveUpdating) return;
+    if (!logs.some(l => l.status.inDrive === false)) return;
+
     if (!await isOnline()) {
         logWithTimestamp("Computer must be online to upload to drive.");
         return;
     }
 
-    if (!logs.some(l => l.status.inDrive === false)) return;
+    driveUpdating = true;
 
     const drive = google.drive({ version: 'v3', auth });
 
@@ -192,6 +215,7 @@ async function updateDrive() {
 
         if (!folderId) {
             const file = await drive.files.create({
+                supportsAllDrives: true,
                 requestBody: {
                     name: log.match.event,
                     mimeType: 'application/vnd.google-apps.folder',
@@ -207,7 +231,7 @@ async function updateDrive() {
             continue;
         }
 
-        const fileId = await uploadFile(drive, log.locations.localPath, log.name, folderId).catch(() => logWithTimestamp("Could not upload log: " + log.id));
+        const fileId = await uploadFile(drive, log.locations.localPath, log.name + ".wpilog", folderId).catch(() => logWithTimestamp("Could not upload log: " + log.id));
 
         if (!fileId) continue;
 
@@ -216,7 +240,10 @@ async function updateDrive() {
             folderId
         }
         logs[i].status.inDrive = true;
+        logWithTimestamp("Uploaded " + logs[i].name + " to the drive.")
     }
+
+    driveUpdating = false;
 }
 
 async function uploadFile(drive: drive_v3.Drive, filePath: string, fileName: string, folderId: string) {
