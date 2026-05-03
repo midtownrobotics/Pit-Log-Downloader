@@ -6,15 +6,15 @@ import * as util from "util";
 import { drive_v3, google } from "googleapis";
 import isOnline from "is-online";
 
-const ssh = new NodeSSH;
-
+// ------------------These should be updated------------------ //
 const kRobotNetworkBaseIp = "10.16.48";
 const kLogFolderId = "1dLI2PBtz-6NQLCZ2zNC5-zbqWt_5onbg";
+// ----------------------------------------------------------- //
 
 const kRioIp = kRobotNetworkBaseIp + ".2";
+const kLogFileRegex = /^akit_[^_]+_[^_]+_[^_]+_[qep]\d+\.wpilog$/;
 
-const logFileRegex = /^akit_[^_]+_[^_]+_[^_]+_[qep]\d+\.wpilog$/;
-
+const ssh = new NodeSSH;
 const auth = new google.auth.GoogleAuth({
     keyFile: 'service-account-key.json',
     scopes: ['https://www.googleapis.com/auth/drive'],
@@ -129,7 +129,7 @@ async function downloadLogs() {
             const res = await readdirAsync(origin).catch(() => logWithTimestamp("Could not read dir: " + origin));
             if (!res) continue;
 
-            const list = res.filter(i => logFileRegex.test(i.filename));
+            const list = res.filter(i => kLogFileRegex.test(i.filename));
 
             for (const file of list) {
                 const { filename } = file;
