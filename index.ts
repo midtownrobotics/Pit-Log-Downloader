@@ -5,11 +5,24 @@ import * as os from "os";
 import * as util from "util";
 import { drive_v3, google } from "googleapis";
 import isOnline from "is-online";
+import express from "express";
 
-// ------------------These should be updated------------------ //
+/** 
+ * Set this value according to the ip configurations in the wpilib docs without the ".2" in the ip:
+ * https://docs.wpilib.org/en/stable/docs/networking/networking-introduction/ip-configurations.html
+ * Example: "10.16.48" for 1648 or "10.2.54" for 254.
+*/
 const kRobotNetworkBaseIp = "10.16.48";
+
+
+/**
+ * Set this to the id of the google drive folder in which you wish the log files to be placed. This
+ * can be attained from the folder's URL in google drive (in the [FOLDER ID HERE] location as seen) below:
+ * https://drive.google.com/drive/u/0/folders/[FOLDER ID HERE]
+ */
 const kLogFolderId = "1dLI2PBtz-6NQLCZ2zNC5-zbqWt_5onbg";
-// ----------------------------------------------------------- //
+
+// No values below this line need be changed.
 
 const kRioIp = kRobotNetworkBaseIp + ".2";
 const kLogFileRegex = /^akit_[^_]+_[^_]+_[^_]+_[qep]\d+\.wpilog$/;
@@ -285,3 +298,140 @@ function logWithTimestamp(log: Object) {
     const time = `${pn(date.getHours())}:${pn(date.getMinutes())}:${pn(date.getSeconds())}`;
     console.log(log + " (" + time + ")");
 }
+
+const app = express();
+const kServerPort = 3000;
+
+// Serve the file browser UI
+app.get("/", (_req, res) => {
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FRC Log Browser</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #e6edf3; font-family: 'Courier New', monospace; min-height: 100vh; padding: 32px; }
+    .header { border-bottom: 1px solid #21262d; padding-bottom: 20px; margin-bottom: 28px; }
+    .tag { font-size: 11px; color: #7d8590; letter-spacing: 0.12em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #3fb950; display: inline-block; }
+    h1 { font-size: 24px; color: #58a6ff; margin-top: 6px; letter-spacing: -0.02em; }
+    .breadcrumb { font-size: 12px; color: #7d8590; margin-bottom: 20px; }
+    .breadcrumb a { color: #58a6ff; text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; }
+    .grid { display: grid; gap: 8px; }
+    .item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #161b22; border: 1px solid #21262d; border-radius: 6px; text-decoration: none; color: inherit; transition: border-color 0.15s; }
+    .item:hover { border-color: #58a6ff; }
+    .icon { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
+    .name { font-size: 14px; }
+    .meta { margin-left: auto; font-size: 11px; color: #7d8590; white-space: nowrap; padding-left: 12px; }
+    .dl { background: #1f6feb; color: white; border: none; border-radius: 4px; padding: 4px 10px; font-size: 11px; cursor: pointer; font-family: inherit; text-decoration: none; flex-shrink: 0; margin-left: 8px; }
+    .dl:hover { background: #388bfd; }
+    .empty { color: #484f58; font-size: 13px; padding: 24px 0; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="tag"><span class="dot"></span> FRC Log Server</div>
+    <h1>📁 Log Browser</h1>
+  </div>
+  <div id="breadcrumb" class="breadcrumb"></div>
+  <div id="list" class="grid"></div>
+  <script>
+    async function load(event) {
+      const res = await fetch('/files' + (event ? '?event=' + event : ''));
+      const data = await res.json();
+      const crumb = document.getElementById('breadcrumb');
+      const list = document.getElementById('list');
+      if (event) {
+        crumb.innerHTML = '<a href="#" onclick="load();return false">logs</a> / ' + event;
+      } else {
+        crumb.textContent = 'logs';
+      }
+      if (data.length === 0) {
+        list.innerHTML = '<div class="empty">No logs found yet.</div>';
+        return;
+      }
+      list.innerHTML = data.map(item => {
+        if (item.type === 'folder') {
+          return \`<a class="item" href="#" onclick="load('\${item.name}');return false">
+            <span class="icon">📁</span>
+            <span class="name">\${item.name}</span>
+            <span class="meta">\${item.count} file\${item.count !== 1 ? 's' : ''}</span>
+          </a>\`;
+        } else {
+          return \`<div class="item">
+            <span class="icon">📄</span>
+            <span class="name">\${item.name}</span>
+            <span class="meta">\${item.size}</span>
+            <a class="dl" href="/download?event=\${item.event}&file=\${encodeURIComponent(item.name)}">↓ Download</a>
+          </div>\`;
+        }
+      }).join('');
+    }
+    load();
+  </script>
+</body>
+</html>`);
+});
+
+// List events (folders) or files within an event
+app.get("/files", (req, res) => {
+    const logsDir = path.join(__dirname, 'logs');
+    const event = req.query.event as string | undefined;
+
+    if (!fs.existsSync(logsDir)) {
+        return res.json([]);
+    }
+
+    if (!event) {
+        // Return top-level event folders
+        const entries = fs.readdirSync(logsDir, { withFileTypes: true })
+            .filter(e => e.isDirectory())
+            .map(e => {
+                const files = fs.readdirSync(path.join(logsDir, e.name));
+                return { type: 'folder', name: e.name, count: files.length };
+            });
+        return res.json(entries);
+    }
+
+    // Sanitize to prevent path traversal
+    const eventDir = path.join(logsDir, path.basename(event));
+    if (!fs.existsSync(eventDir)) {
+        return res.json([]);
+    }
+
+    const files = fs.readdirSync(eventDir, { withFileTypes: true })
+        .filter(e => e.isFile())
+        .map(e => {
+            const stat = fs.statSync(path.join(eventDir, e.name));
+            const mb = (stat.size / 1024 / 1000).toFixed(1);
+            return { type: 'file', name: e.name, event, size: `${mb} MB` };
+        });
+
+    res.json(files);
+});
+
+// Download a specific log file
+app.get("/download", (req, res) => {
+    const event = req.query.event as string;
+    const file = req.query.file as string;
+
+    if (!event || !file) {
+        return res.status(400).send("Missing event or file parameter.");
+    }
+
+    // Sanitize both segments to prevent path traversal
+    const filePath = path.join(__dirname, 'logs', path.basename(event), path.basename(file));
+
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send("File not found.");
+    }
+
+    res.download(filePath);
+});
+
+app.listen(kServerPort, () => {
+    logWithTimestamp(`Log browser running at http://localhost:${kServerPort}`);
+});

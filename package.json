@@ -4,7 +4,7 @@
   "main": "index.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "npx nodemon index.ts"
+    "dev": "npx nodemon index.ts --ignore *.json"
   },
   "author": "",
   "license": "ISC",
@@ -13,7 +13,9 @@
     "ts-node": "^10.9.2"
   },
   "dependencies": {
+    "@types/express": "^5.0.6",
     "@types/node-ssh": "^7.0.6",
+    "express": "^5.2.1",
     "googleapis": "^171.4.0",
     "is-online": "^12.0.2",
     "node-ssh": "^13.2.1"
