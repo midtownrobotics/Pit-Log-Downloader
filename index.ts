@@ -406,7 +406,7 @@ app.get("/files", (req, res) => {
         .filter(e => e.isFile())
         .map(e => {
             const stat = fs.statSync(path.join(eventDir, e.name));
-            const mb = (stat.size / 1024 / 1000).toFixed(1);
+            const mb = (stat.size / 1024 / 1024).toFixed(1);
             return { type: 'file', name: e.name, event, size: `${mb} MB` };
         });
 
